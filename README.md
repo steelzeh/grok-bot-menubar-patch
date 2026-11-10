@@ -75,7 +75,7 @@ env SAND_DISABLE_UPDATES=1 SAND_USER_DATA_DIR=/tmp/grok-test/ud SAND_DATA_ROOT=/
 
 - **macOS treats it as a new app.** It may ask again for Keychain, microphone, camera and other permissions.
 - **The app leaves Cmd+Tab and the top menu bar.** macOS does this for every app without a Dock icon. The Dock unread badge also goes away. The menu bar icon shows the unread count.
-- **The menu bar icon can be hidden by macOS.** If you do not see it, look in System Settings > Menu Bar, and check that there is room next to the notch.
+- **The menu bar icon can be hidden by macOS.** macOS 26 has one switch per app in System Settings > Menu Bar. If you do not see the icon, turn on the switch for Grok Bot. If you ever started Grok Bot from a terminal, macOS can file its icon under the terminal app, and then the switch of that app must be on too.
 - **The menu bar icon is not a released feature.** The vendor has not turned it on, so it can be unfinished or change.
 
 ## How it works
