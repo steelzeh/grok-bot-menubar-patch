@@ -2,6 +2,8 @@
 
 Moves Grok Bot for macOS out of the Dock and into the menu bar.
 
+<img src="docs/menu-bar.png" alt="The Grok Bot menu bar icon with its menu open: five recent bots, Open Grok Bot, Settings and Quit Grok Bot" width="403">
+
 Not affiliated with Anysphere or xAI. This repo holds no Grok Bot code, only the short text patterns the script looks for in your installed copy.
 
 ## What it changes
