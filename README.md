@@ -16,7 +16,44 @@ Cmd+Q and the Quit item in the menu bar icon still quit the app.
 
 ## Use it
 
-You need macOS and Python 3.9 or newer. Quit Grok Bot first.
+You need macOS and Python 3.9 or newer.
+
+Replace the installed app. `--quit` closes Grok Bot and opens it again:
+
+```sh
+python3 patch_grok_bot.py --install --quit
+```
+
+The script saves a zip of the original app in `~/Library/Application Support/grok-bot-menubar-patch/`. It keeps the 2 newest zips.
+
+Put the original app back:
+
+```sh
+python3 patch_grok_bot.py --restore --quit
+```
+
+## Keep updates
+
+Grok Bot's updater accepts a new version only if it passes the signing rule of the installed app. The default signature of this script is ad hoc (no certificate), and then **updates stop**.
+
+With your own Developer ID Application certificate, updates keep working:
+
+```sh
+python3 patch_grok_bot.py --install --quit --identity "Developer ID Application: Your Name (TEAMID)"
+```
+
+The script then writes a signing rule that accepts two signers: the vendor and you. The patched app passes it, and so does each update from the vendor.
+
+An update installs the vendor's original app, so the patch is gone after each update. Run the same `--install` command again. Or install a launchd agent that does it for you:
+
+```sh
+python3 patch_grok_bot.py --install-agent --identity "Developer ID Application: Your Name (TEAMID)"
+python3 patch_grok_bot.py --remove-agent
+```
+
+The agent runs when the Applications folder changes, at login, and every 30 minutes. It does nothing while the app is patched. After an update it quits Grok Bot, patches it, and opens it again. Its log is `~/Library/Logs/grok-bot-menubar-patch.log`.
+
+## Try a copy first
 
 Write a patched copy and leave the installed app alone:
 
@@ -34,36 +71,37 @@ env SAND_DISABLE_UPDATES=1 SAND_USER_DATA_DIR=/tmp/grok-test/ud SAND_DATA_ROOT=/
   ~/Applications/"Grok Bot Test.app/Contents/MacOS/Grok Bot"
 ```
 
-Replace the installed app. The script saves a zip of the original in `~/Library/Application Support/grok-bot-menubar-patch/`:
-
-```sh
-python3 patch_grok_bot.py --install
-```
-
-To undo the patch, unzip that file and put the app back in `/Applications`.
-
 ## What you give up
 
-- **Automatic updates will probably stop.** The patched app no longer has Anysphere's signature, and the updater expects it. To update, download a fresh Grok Bot and run the script on it.
-- **macOS will treat it as a new app.** It may ask again for Keychain, microphone, camera and other permissions.
-- **Ad hoc signing changes on each build.** Pass `--identity "Your Certificate Name"` to sign with your own certificate, so that permissions are more likely to survive a rebuild.
-- **The app leaves Cmd+Tab and the top menu bar.** macOS does this for every app without a Dock icon. The Dock unread badge also goes away.
+- **macOS treats it as a new app.** It may ask again for Keychain, microphone, camera and other permissions.
+- **The app leaves Cmd+Tab and the top menu bar.** macOS does this for every app without a Dock icon. The Dock unread badge also goes away. The menu bar icon shows the unread count.
+- **The menu bar icon can be hidden by macOS.** If you do not see it, look in System Settings > Menu Bar, and check that there is room next to the notch.
+- **The menu bar icon is not a released feature.** The vendor has not turned it on, so it can be unfinished or change.
 
-## New Grok Bot versions
+## How it works
 
-The script finds its targets with patterns that ignore the minified names, and it needs exactly one match for each. If a new version changes that code, the script stops with an error and leaves the app unchanged.
+- The script finds its targets with patterns that ignore the minified names, and it needs exactly one match for each. If a new version changes that code, the script stops with an error and leaves the app unchanged.
+- It edits one file inside `app.asar` in place. The file keeps its position, so no other offset moves. It updates the hashes that Electron checks at startup.
+- The patched file is one byte shorter than the original. Grok Bot keeps a V8 code cache of that file in its data folder, and V8 accepts a cache when the source has the same length. With the same length, the app would run the cached original code and ignore the patch. `--install` also deletes that cache file. The app writes it again.
+- It signs all code again and keeps each component's entitlements.
+- `--install` waits for Grok Bot's own updater. A downloaded update installs when the app quits, and the script patches the result.
 
-Tested on Grok Bot 0.79.3, Apple Silicon, with a copy that was not logged in:
+## Tested
+
+Grok Bot 0.79.3 and 0.79.4, Apple Silicon, macOS 26:
 
 - The app has no Dock icon.
-- The menu bar icon shows Open, Settings and Quit.
+- The menu bar icon exists and shows the recent bots, Open, Settings and Quit.
 - The close button hides the window, and the window process stays alive.
-- Open shows the window again, and Quit ends the app.
+- Open shows the window again without a restart. Quit ends the app.
+- A patched 0.79.3 with a Developer ID signature downloaded and installed the vendor's 0.79.4 update.
+- `--install` and `--restore` on a real installation.
 
 Not tested yet:
 
 - A real notification that arrives while the window is hidden.
-- The `--install` mode on a real installation. Only `--output` was run.
+- The launchd agent (`--install-agent`).
+- Intel Macs.
 
 ## Tests
 

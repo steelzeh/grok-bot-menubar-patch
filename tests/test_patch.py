@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import plistlib
 import struct
 import sys
@@ -53,9 +54,10 @@ def make_asar(path, content, block_size=16):
 
 
 class SourcePatchTests(unittest.TestCase):
-    def test_keeps_length_and_changes_both_checks(self):
+    def test_changes_both_checks_and_the_length(self):
         patched = patcher.patch_source(SOURCE)
-        self.assertEqual(len(patched), len(SOURCE))
+        # A new length makes V8 reject a code cache of the original file.
+        self.assertEqual(len(patched), len(SOURCE) - 1)
         self.assertNotIn(b"checkFeatureGate", patched)
         self.assertIn(b"n||!0", patched)
         self.assertNotIn(b"&&m()", patched)
@@ -95,6 +97,7 @@ class ArchiveTests(unittest.TestCase):
         _, entry, content, header_json = self.read_target()
         self.assertEqual(self.asar.stat().st_size, before_size)
         self.assertEqual(content, patcher.patch_source(SOURCE))
+        self.assertEqual(entry["size"], len(SOURCE) - 1)
         file_hash, blocks = patcher.file_integrity(content, entry["integrity"]["blockSize"])
         self.assertEqual(entry["integrity"]["hash"], file_hash)
         self.assertEqual(entry["integrity"]["blocks"], blocks)
@@ -127,6 +130,70 @@ class PathTests(unittest.TestCase):
         self.assertTrue(patcher.in_applications_folder(Path("/Applications/Grok Bot.app")))
         self.assertTrue(patcher.in_applications_folder(Path.home() / "Applications/Grok Bot Test.app"))
         self.assertFalse(patcher.in_applications_folder(Path("/tmp/Grok Bot.app")))
+
+
+class SigningTests(unittest.TestCase):
+    def test_requirement_accepts_both_teams(self):
+        requirement = patcher.update_requirement("com.example.app", ["AAAAAAAAAA", "BBBBBBBBBB"])
+        self.assertIn('identifier "com.example.app"', requirement)
+        self.assertIn(
+            '(certificate leaf[subject.OU] = "AAAAAAAAAA" or certificate leaf[subject.OU] = "BBBBBBBBBB")',
+            requirement,
+        )
+
+    def test_requirement_refuses_odd_input(self):
+        with self.assertRaises(patcher.PatchError):
+            patcher.update_requirement('com.example" or anchor apple', ["AAAAAAAAAA"])
+        with self.assertRaises(patcher.PatchError):
+            patcher.update_requirement("com.example.app", ['A" or 1'])
+
+
+class InstallTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+
+    def make_app(self, **plist):
+        app = self.root / "Grok Bot.app"
+        (app / "Contents").mkdir(parents=True)
+        with (app / "Contents/Info.plist").open("wb") as handle:
+            plistlib.dump({"CFBundleExecutable": "Grok Bot", **plist}, handle)
+        return app
+
+    def test_knows_an_unpatched_app(self):
+        self.assertFalse(patcher.is_patched(self.make_app()))
+
+    def test_knows_a_patched_app(self):
+        self.assertTrue(patcher.is_patched(self.make_app(LSUIElement=True)))
+
+    def test_if_needed_leaves_a_patched_app_alone(self):
+        app = self.make_app(LSUIElement=True)
+        self.assertEqual(patcher.install_if_needed(app, "-"), 0)
+        self.assertEqual(patcher.install_if_needed(self.root / "missing.app", "-"), 0)
+
+    def test_keeps_only_the_newest_backups(self):
+        original = patcher.BACKUP_DIR
+        patcher.BACKUP_DIR = self.root
+        self.addCleanup(setattr, patcher, "BACKUP_DIR", original)
+        for index in range(4):
+            path = self.root / f"Grok Bot-1.0-{index}.zip"
+            path.write_bytes(b"x")
+            os.utime(path, (index, index))
+        (self.root / "other.zip").write_bytes(b"x")
+        patcher.prune_backups(self.root / "Grok Bot.app")
+        self.assertEqual(
+            sorted(path.name for path in self.root.iterdir()),
+            ["Grok Bot-1.0-2.zip", "Grok Bot-1.0-3.zip", "other.zip"],
+        )
+
+    def test_agent_runs_the_if_needed_install(self):
+        plist = patcher.agent_plist("/usr/bin/python3", Path("/x/patch.py"), Path("/Applications/Grok Bot.app"), "Cert")
+        self.assertEqual(
+            plist["ProgramArguments"],
+            ["/usr/bin/python3", "/x/patch.py", "--app", "/Applications/Grok Bot.app", "--install", "--if-needed", "--identity", "Cert"],
+        )
+        self.assertEqual(plist["WatchPaths"], ["/Applications", "/Applications/Grok Bot.app"])
 
 
 if __name__ == "__main__":
